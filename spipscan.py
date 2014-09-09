@@ -15,6 +15,8 @@ folder_themes = None
 
 plugins = {}
 
+SPIPSCAN_VERSION = "1.2"
+
 
 # Detect the version of a SPIP install
 # Version is in the header (for almost all versions)
@@ -25,6 +27,10 @@ def detect_version(req):
             res = detect_version_in_html(req.content)
         if res:
             return
+    if req.status_code != 200:
+        print("[-] Error:  <Response [%d]>" % req.status_code)
+        display_message(BeautifulSoup(req.content).prettify(encoding=None,
+                                                            formatter='html'))
     if opts.force:
         print("Doesn't seem to be a SPIP install!")
     else:
@@ -94,7 +100,8 @@ def insert_discovered_plugin(plugin_name, plugin_version):
 
 
 # Detect the plugins/themes folder of a SPIP install
-# Moreover, if there's directory listing enabled, it recovers the plugins/themes
+# Moreover, if there's directory listing enabled, it recovers
+# the plugins/themes.
 # And it does not do bruteforce attack on the retrieved elements.
 def detect_folder_for_themes_and_plugins(url, isForPlugins):
     global folder_themes
@@ -115,7 +122,9 @@ def detect_folder_for_themes_and_plugins(url, isForPlugins):
 
     for folder in folders:
         url_to_visit = url + folder
-        req = requests.get(url_to_visit, timeout=10)
+        req = requests.get(url_to_visit,
+                           timeout=opts.connect_timeout,
+                           auth=url_auth)
 
         # code for both status code 200/403
         if req.status_code == 200 or req.status_code == 403:
@@ -156,7 +165,9 @@ def detect_sensitive_folders(url):
 
     for folder in folders:
         url_to_visit = url + folder
-        req = requests.get(url_to_visit, timeout=10)
+        req = requests.get(url_to_visit,
+                           timeout=opts.connect_timeout,
+                           auth=url_auth)
 
         # code only for 200 (might be directory listing)
         if req.status_code == 200:
@@ -181,7 +192,8 @@ def iterate_directory_listing(url, content):
         try:
             regex_plugin = re.search(r"href=\"(\w+/)\">\s?(\w+)/<", str(link))
             folder_plugin = regex_plugin.group(1)
-            detect_version_of_plugin_or_theme_by_folder_name(url, folder_plugin)
+            detect_version_of_plugin_or_theme_by_folder_name(url,
+                                                             folder_plugin)
         except:
             pass
 
@@ -191,7 +203,9 @@ def iterate_directory_listing(url, content):
 def detect_version_of_plugin_or_theme_by_folder_name(url, folder):
     url_folder = url + folder + "plugin.xml"
     # HTTP GET to get the version of the plugin
-    req_plugin_xml = requests.get(url_folder, timeout=10)
+    req_plugin_xml = requests.get(url_folder,
+                                  timeout=opts.connect_timeout,
+                                  auth=url_auth)
     display_message("[-] Trying:  %s" % url_folder)
     if req_plugin_xml.status_code == 200:
         regex_version_plugin = re.search(
@@ -204,7 +218,9 @@ def detect_version_of_plugin_or_theme_by_folder_name(url, folder):
     else:
         url_folder = url + folder + "paquet.xml"
         # HTTP GET to get the version of the plugin
-        req_plugin_xml = requests.get(url_folder, timeout=10)
+        req_plugin_xml = requests.get(url_folder,
+                                      timeout=opts.connect_timeout,
+                                      auth=url_auth)
         display_message("[-] Trying:  %s" % url_folder)
         if req_plugin_xml.status_code == 200:
             regex_version_plugin = re.search(
@@ -252,7 +268,9 @@ def detect_vulnerabilities():
                 if i == 1 and tmp[i] != intermediary_version:
                     break
 
-                if (i == 1 and tmp[i] == intermediary_version and (i + 1) > len(tmp)):
+                if i == 1 and \
+                   tmp[i] == intermediary_version and \
+                   (i + 1) > len(tmp):
                     print("[!] Potential Vulnerability:  (versions:  %s)"
                           ", %s, details:  %s"
                           % (versions_vuln, description_vuln, url_vuln))
@@ -307,7 +325,7 @@ def enumerate_users(url, file_logins):
 
     url_login = url + 'spip.php?page=login'
     display_message("Accessing %s" % url_login)
-    req = requests.get(url_login)
+    req = requests.get(url_login, auth=url_auth)
 
     soup = BeautifulSoup(req.content)
     inputTag = soup.findAll(attrs={"name": "formulaire_action_args"})
@@ -376,121 +394,155 @@ def display_message(m):
     if opts.verbose:
         print(m)
 
+if __name__ == "__main__":
+    # option parser
+    parser = optparse.OptionParser()
+    parser.add_option('-w', '--website',
+                      help='Website to scan (default:  "http://localhost")',
+                      dest='website',
+                      default='http://localhost')
+    parser.add_option('-d', '--path',
+                      help='Path for webapp (default:  "/")',
+                      dest='path',
+                      default='/')
+    parser.add_option('-t', '--themes',
+                      help='Detect themes installed',
+                      dest='detect_themes',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-p', '--plugins',
+                      help='Detect plugins installed',
+                      dest='detect_plugins',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-s', '--vulns',
+                      help='Detect possible vulns',
+                      dest='detect_vulns',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-V', '--version',
+                      help='Detect version',
+                      dest='detect_version',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-f', '--sensitive_folders',
+                      help='Detect sensitive folders',
+                      dest='detect_sensitive_folders',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-u', '--users',
+                      help='Bruteforce user logins',
+                      dest='bruteforce_user_logins',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-T', '--bruteforce_themes_file',
+                      help='Bruteforce theme file (eg. themes_name.db)',
+                      dest='bruteforce_themes_file',
+                      default=None)
+    parser.add_option('-P', '--bruteforce_plugins_file',
+                      help='Bruteforce plugin file (eg. plugins_name.db)',
+                      dest='bruteforce_plugins_file',
+                      default=None)
+    parser.add_option('-U', '--bruteforce_logins_file',
+                      help='Bruteforce login file (eg. user_logins.db)',
+                      dest='bruteforce_logins_file',
+                      default=None)
+    parser.add_option('-S', '--scan',
+                      help='Like -Vtps',
+                      dest='scan',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-F', '--force',
+                      help='Force the scan if SPIP version is not detected',
+                      dest='force',
+                      default=False,
+                      action='store_true')
+    parser.add_option('-b', '--basic-auth',
+                      help='Use basic authentication user:password',
+                      dest='basic_auth')
+    parser.add_option('-c', '--connect-timeout',
+                      help='Set the connection timeout in sec (default:  10)',
+                      dest='connect_timeout',
+                      default=10.0,
+                      type='float')
+    parser.add_option('-v', '--verbose',
+                      help='Verbose mode',
+                      dest='verbose',
+                      default=False,
+                      action='store_true')
 
-# option parser
-parser = optparse.OptionParser()
-parser.add_option('-w', '--website',
-                  help='Website to pentest (default: "http://localhost")',
-                  dest='website',
-                  default='http://localhost')
-parser.add_option('-d', '--path',
-                  help='Path for webapp (default : "/")',
-                  dest='path',
-                  default='/')
-parser.add_option('-t', '--themes',
-                  help='Detect themes installed',
-                  dest='detect_themes',
-                  default=False,
-                  action='store_true')
-parser.add_option('-p', '--plugins',
-                  help='Detect plugins installed',
-                  dest='detect_plugins',
-                  default=False,
-                  action='store_true')
-parser.add_option('-s', '--vulns',
-                  help='Detect possible vulns',
-                  dest='detect_vulns',
-                  default=False,
-                  action='store_true')
-parser.add_option('-V', '--version',
-                  help='Detect version',
-                  dest='detect_version',
-                  default=False,
-                  action='store_true')
-parser.add_option('-f', '--sensitive_folders',
-                  help='Detect sensitive folders',
-                  dest='detect_sensitive_folders',
-                  default=False,
-                  action='store_true')
-parser.add_option('-u', '--users',
-                  help='Bruteforce user logins',
-                  dest='bruteforce_user_logins',
-                  default=False,
-                  action='store_true')
-parser.add_option('-T', '--bruteforce_themes_file',
-                  help='Bruteforce theme file (eg. themes_name.db)',
-                  dest='bruteforce_themes_file',
-                  default=None)
-parser.add_option('-P', '--bruteforce_plugins_file',
-                  help='Bruteforce plugin file (eg. plugins_name.db)',
-                  dest='bruteforce_plugins_file',
-                  default=None)
-parser.add_option('-U', '--bruteforce_logins_file',
-                  help='Bruteforce login file (eg. user_logins.db)',
-                  dest='bruteforce_logins_file',
-                  default=None)
-parser.add_option('-S', '--scan',
-                  help='Like -Vtps',
-                  dest='scan',
-                  default=False,
-                  action='store_true')
-parser.add_option('-F', '--force',
-                  help='Force the scan if SPIP version is not detected',
-                  dest='force',
-                  default=False,
-                  action='store_true')
-parser.add_option('-v', '--verbose',
-                  help='Verbose mode',
-                  dest='verbose',
-                  default=False,
-                  action='store_true')
+    if len(sys.argv) <= 1:
+        print("SPIPScan version %s" % SPIPSCAN_VERSION)
+        parser.print_help()
+    else:
+        (opts, args) = parser.parse_args()
 
+        url = opts.website + opts.path
+        url_auth = ()
+        display_message("Application is located here:  %s" % url)
 
-if len(sys.argv) <= 1:
-    parser.print_help()
-else:
-    (opts, args) = parser.parse_args()
+        # Check Basic Authentication
+        if opts.basic_auth is not None:
+            ba = tuple(opts.basic_auth.split(":"))
+            if len(ba) == 2:
+                url_auth = ba
+                req = requests.get(url,
+                                   timeout=opts.connect_timeout,
+                                   auth=url_auth)
+                if req.status_code == 401:
+                    print("[-] Invalid credentials!")
+                elif req.status_code == 200:
+                    print("[+] Successfuly logged in!")
+                else:
+                    print("[-] Error:  status code %d" % req.status_code)
+            else:
+                print("[-] Invalid credentials format!")
 
-    url = opts.website + opts.path
-    display_message("Application is located here:  %s" % url)
+        if opts.scan:
+            opts.detect_version = True
+            opts.detect_themes = True
+            opts.detect_plugins = True
+            opts.detect_vulns = True
 
-    if opts.scan:
-        opts.detect_version = True
-        opts.detect_themes = True
-        opts.detect_plugins = True
-        opts.detect_vulns = True
+        if opts.detect_version or \
+           opts.detect_vulns or \
+           opts.bruteforce_user_logins or \
+           opts.detect_plugins:
+            req = requests.get(url,
+                               timeout=opts.connect_timeout,
+                               auth=url_auth)
+            detect_version(req)
 
-    if opts.detect_version or opts.detect_vulns or opts.bruteforce_user_logins or opts.detect_plugins:
-        req = requests.get(url, timeout=10)
-        detect_version(req)
+        if opts.detect_plugins or opts.bruteforce_plugins_file is not None:
+            display_message("[-] Trying to detect plugins in Header")
+            detect_plugins_in_header(req)
+            if not detect_folder_for_themes_and_plugins(url, True):
+                print("[-] We haven't been able to locate the plugins folder")
 
-    if opts.detect_plugins or opts.bruteforce_plugins_file is not None:
-        display_message("[-] Trying to detect plugins in Header")
-        detect_plugins_in_header(req)
-        if not detect_folder_for_themes_and_plugins(url, True):
-            print("[-] We haven't been able to locate the plugins folder")
+        if opts.detect_themes or opts.bruteforce_themes_file is not None:
+            if not detect_folder_for_themes_and_plugins(url, False):
+                print("[-] We haven't been able to locate the themes folder")
 
-    if opts.detect_themes or opts.bruteforce_themes_file is not None:
-        if not detect_folder_for_themes_and_plugins(url, False):
-            print("[-] We haven't been able to locate the themes folder")
+        # detect plugin will do brute force attack if it finds a HTTP 403
+        # (Restricted)
+        if opts.bruteforce_plugins_file is not None and \
+           folder_plugins is not None:
+            bruteforce_folder(url, opts.bruteforce_plugins_file, True)
 
-    # detect plugin will do brute force attack if it finds a HTTP 403
-    # (Restricted)
-    if opts.bruteforce_plugins_file is not None and folder_plugins is not None:
-        bruteforce_folder(url, opts.bruteforce_plugins_file, True)
+        # brute force themes folder if 403 also
+        if opts.bruteforce_themes_file is not None and \
+           folder_themes is not None:
+            bruteforce_folder(url, opts.bruteforce_themes_file, False)
 
-    # brute force themes folder if 403 also
-    if opts.bruteforce_themes_file is not None and folder_themes is not None:
-        bruteforce_folder(url, opts.bruteforce_themes_file, False)
+        if opts.bruteforce_user_logins and \
+           opts.bruteforce_logins_file is not None:
+            if major_version == "2" and intermediary_version == "0":
+                enumerate_users(url, opts.bruteforce_logins_file)
+            else:
+                print("This feature is only available for versions 2.0.X")
 
-    if opts.bruteforce_user_logins and opts.bruteforce_logins_file is not None:
-        if major_version == "2" and intermediary_version == "0":
-            enumerate_users(url, opts.bruteforce_logins_file)
-        else:
-            print("This feature is only available for versions 2.0.X")
+        if opts.detect_sensitive_folders:
+            detect_sensitive_folders(url)
 
-    if opts.detect_sensitive_folders:
-        detect_sensitive_folders(url)
-
-    if opts.detect_vulns:
-        detect_vulnerabilities()
+        if opts.detect_vulns:
+            detect_vulnerabilities()
