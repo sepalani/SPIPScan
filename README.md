@@ -28,13 +28,14 @@ Usage
 
 ```python
 $ python spipscan.py 
-Usage: spipscan [options]
+SPIPScan version 1.2
+Usage: spipscan.py [options]
 
 Options:
   -h, --help            show this help message and exit
   -w WEBSITE, --website=WEBSITE
-                        Website to pentest (default: "http://localhost")
-  -d PATH, --path=PATH  Path for webapp (default: "/")
+                        Website to scan (default:  "http://localhost")
+  -d PATH, --path=PATH  Path for webapp (default:  "/")
   -t, --themes          Detect themes installed
   -p, --plugins         Detect plugins installed
   -s, --vulns           Detect possible vulns
@@ -50,6 +51,10 @@ Options:
                         Bruteforce login file (eg. user_logins.db)
   -S, --scan            Like -Vtps
   -F, --force           Force the scan if SPIP version is not detected
+  -b BASIC_AUTH, --basic-auth=BASIC_AUTH
+                        Use basic authentication user:password
+  -c CONNECT_TIMEOUT, --connect-timeout=CONNECT_TIMEOUT
+                        Set the connection timeout in sec (default:  10)
   -v, --verbose         Verbose mode
 ```
 
